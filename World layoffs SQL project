@@ -1,0 +1,281 @@
+-- SQL Project - Data Cleaning
+-- https://www.kaggle.com/datasets/swaptr/layoffs-2022
+
+SELECT * 
+FROM world_layoffs.layoffs;
+
+-- Fisrt I will create a stating table that I will use to cleana and explore the data.
+
+CREATE TABLE world_layoffs.layoffs_staging 
+LIKE world_layoffs.layoffs;
+
+INSERT layoffs_staging 
+SELECT * FROM world_layoffs.layoffs;
+
+-- Cleaning data steps
+-- 1. Check for duplicates and remove them
+-- 2. standardize the data and fix errors
+-- 3. remove any colums and rows that are not necessary 
+
+-- 1. Remove Duplicates
+
+SELECT *
+FROM world_layoffs.layoffs_staging;
+
+SELECT *
+FROM (
+	SELECT company, location, industry, total_laid_off,percentage_laid_off,`date`, stage, country, funds_raised_millions,
+		ROW_NUMBER() OVER (
+			PARTITION BY company, location, industry, total_laid_off,percentage_laid_off,`date`, stage, country, funds_raised_millions
+			) AS row_num
+	FROM 
+		world_layoffs.layoffs_staging
+) duplicates
+WHERE 
+	row_num > 1;
+
+-- I will create a new column and add those row numbers in and then delete where row numbers are over 2, then delete that column
+
+ALTER TABLE world_layoffs.layoffs_staging ADD row_num INT;
+
+
+SELECT *
+FROM world_layoffs.layoffs_staging
+;
+
+CREATE TABLE `world_layoffs`.`layoffs_staging2` (
+`company` text,
+`location`text,
+`industry`text,
+`total_laid_off` INT,
+`percentage_laid_off` text,
+`date` text,
+`stage`text,
+`country` text,
+`funds_raised_millions` int,
+row_num INT
+);
+
+INSERT INTO `world_layoffs`.`layoffs_staging2`
+(`company`,
+`location`,
+`industry`,
+`total_laid_off`,
+`percentage_laid_off`,
+`date`,
+`stage`,
+`country`,
+`funds_raised_millions`,
+`row_num`)
+SELECT `company`,
+`location`,
+`industry`,
+`total_laid_off`,
+`percentage_laid_off`,
+`date`,
+`stage`,
+`country`,
+`funds_raised_millions`,
+		ROW_NUMBER() OVER (
+			PARTITION BY company, location, industry, total_laid_off,percentage_laid_off,`date`, stage, country, funds_raised_millions
+			) AS row_num
+	FROM 
+		world_layoffs.layoffs_staging;
+
+-- delete rows where row_num is greater than 2
+
+DELETE FROM world_layoffs.layoffs_staging2
+WHERE row_num >= 2;
+
+-- 2. Standardize Data
+
+SELECT * 
+FROM world_layoffs.layoffs_staging2;
+
+--the colum industry has some numms and empty rows
+
+SELECT DISTINCT industry
+FROM world_layoffs.layoffs_staging2
+ORDER BY industry;
+
+SELECT *
+FROM world_layoffs.layoffs_staging2
+WHERE industry IS NULL 
+OR industry = ''
+ORDER BY industry;
+
+-- it looks like airbnb is a travel, but some are not populated
+
+SELECT *
+FROM world_layoffs.layoffs_staging2
+WHERE company LIKE 'airbnb%';
+
+-- I will make a query that if there is another row with the same company name, it will update it to the non-null industry values
+-- Fisrt I will set the blanks to nulls 
+UPDATE world_layoffs.layoffs_staging2
+SET industry = NULL
+WHERE industry = '';
+
+SELECT *
+FROM world_layoffs.layoffs_staging2
+WHERE industry IS NULL 
+OR industry = ''
+ORDER BY industry;
+
+-- I will try to populate the nulls
+
+UPDATE layoffs_staging2 t1
+JOIN layoffs_staging2 t2
+ON t1.company = t2.company
+SET t1.industry = t2.industry
+WHERE t1.industry IS NULL
+AND t2.industry IS NOT NULL;
+
+-- Bally's was the only one without a populated row to populate the null values
+
+SELECT *
+FROM world_layoffs.layoffs_staging2
+WHERE industry IS NULL 
+OR industry = ''
+ORDER BY industry;
+
+-- Crypto has multiple different variations. I will standardizeit to say Crypto
+
+SELECT DISTINCT industry
+FROM world_layoffs.layoffs_staging2
+ORDER BY industry;
+
+UPDATE layoffs_staging2
+SET industry = 'Crypto'
+WHERE industry IN ('Crypto Currency', 'CryptoCurrency');
+
+SELECT DISTINCT industry
+FROM world_layoffs.layoffs_staging2
+ORDER BY industry;
+
+-- Looking at the country column I noticed that we have "United States" and "United States.", I will run a script to fix it
+ELECT DISTINCT country
+FROM world_layoffs.layoffs_staging2
+ORDER BY country;
+
+UPDATE layoffs_staging2
+SET country = TRIM(TRAILING '.' FROM country);
+
+-- I will also fix the date colums
+SELECT *
+FROM world_layoffs.layoffs_staging2;
+
+-- I will use str to date to update this field 
+
+UPDATE layoffs_staging2
+SET `date` = STR_TO_DATE(`date`, '%m/%d/%Y');
+
+-- Now I will convert the data type properly
+
+ALTER TABLE layoffs_staging2
+MODIFY COLUMN `date` DATE;
+
+
+-- Exploratory data Analysis
+
+
+SELECT MAX(total_laid_off)
+FROM world_layoffs.layoffs_staging2;
+
+-- I will look at Percentage to see how big the layoffs were
+
+SELECT MAX(percentage_laid_off),  MIN(percentage_laid_off)
+FROM world_layoffs.layoffs_staging2
+WHERE  percentage_laid_off IS NOT NULL;
+
+--The companies that had 1 is 100 percent of their company that got laid off
+SELECT *
+FROM world_layoffs.layoffs_staging2
+WHERE  percentage_laid_off = 1;
+
+--Order by funcs_raised_millions so we can see how big some of these companies were
+SELECT *
+FROM world_layoffs.layoffs_staging2
+WHERE  percentage_laid_off = 1
+ORDER BY funds_raised_millions DESC;
+
+-- Companies with the biggest single Layoff
+
+SELECT company, total_laid_off
+FROM world_layoffs.layoffs_staging
+ORDER BY 2 DESC
+LIMIT 5;
+
+-- Companies with the most Total Layoffs
+SELECT company, SUM(total_laid_off)
+FROM world_layoffs.layoffs_staging2
+GROUP BY company
+ORDER BY 2 DESC
+LIMIT 10;
+
+-- by location
+SELECT location, SUM(total_laid_off)
+FROM world_layoffs.layoffs_staging2
+GROUP BY location
+ORDER BY 2 DESC
+LIMIT 10;
+
+-- this it total in the past 3 years in the dataset
+
+SELECT country, SUM(total_laid_off)
+FROM world_layoffs.layoffs_staging2
+GROUP BY country
+ORDER BY 2 DESC;
+
+SELECT YEAR(date), SUM(total_laid_off)
+FROM world_layoffs.layoffs_staging2
+GROUP BY YEAR(date)
+ORDER BY 1 ASC;
+
+
+SELECT industry, SUM(total_laid_off)
+FROM world_layoffs.layoffs_staging2
+GROUP BY industry
+ORDER BY 2 DESC;
+
+
+SELECT stage, SUM(total_laid_off)
+FROM world_layoffs.layoffs_staging2
+GROUP BY stage
+ORDER BY 2 DESC;
+
+-- Earlier I looked at Companies with the most Layoffs. Now I will look at that per year.
+
+WITH Company_Year AS 
+(
+  SELECT company, YEAR(date) AS years, SUM(total_laid_off) AS total_laid_off
+  FROM layoffs_staging2
+  GROUP BY company, YEAR(date)
+)
+, Company_Year_Rank AS (
+  SELECT company, years, total_laid_off, DENSE_RANK() OVER (PARTITION BY years ORDER BY total_laid_off DESC) AS ranking
+  FROM Company_Year
+)
+SELECT company, years, total_laid_off, ranking
+FROM Company_Year_Rank
+WHERE ranking <= 3
+AND years IS NOT NULL
+ORDER BY years ASC, total_laid_off DESC;
+
+--Total of Layoffs Per Month
+SELECT SUBSTRING(date,1,7) as dates, SUM(total_laid_off) AS total_laid_off
+FROM layoffs_staging2
+GROUP BY dates
+ORDER BY dates ASC;
+
+-- now I use it in a CTE so I can query off of it
+WITH DATE_CTE AS 
+(
+SELECT SUBSTRING(date,1,7) as dates, SUM(total_laid_off) AS total_laid_off
+FROM layoffs_staging2
+GROUP BY dates
+ORDER BY dates ASC
+)
+SELECT dates, SUM(total_laid_off) OVER (ORDER BY dates ASC) as rolling_total_layoffs
+FROM DATE_CTE
+ORDER BY dates ASC;
