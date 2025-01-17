@@ -4,7 +4,7 @@
 SELECT * 
 FROM world_layoffs.layoffs;
 
--- Fisrt I will create a stating table that I will use to cleana and explore the data.
+-- Fisrt I will create a stating table that I will use to clean and explore the data.
 
 CREATE TABLE world_layoffs.layoffs_staging 
 LIKE world_layoffs.layoffs;
